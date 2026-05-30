@@ -1,0 +1,69 @@
+AGRICOLA GARCIA - OPCION GRATIS SIN DATOS BANCARIOS
+
+Usa:
+- GitHub Pages para publicar la pagina.
+- Firebase Spark / Firestore para guardar los datos.
+
+No uses Render para esta opcion.
+
+PASO 1 - CREAR PROYECTO FIREBASE
+
+1. Entra a:
+   https://console.firebase.google.com/
+2. Crea un proyecto nuevo.
+3. Mantente en el plan Spark gratuito.
+4. No actives Blaze.
+
+PASO 2 - CREAR BASE FIRESTORE
+
+1. En Firebase abre "Firestore Database".
+2. Clic en "Create database".
+3. Elige modo de produccion o prueba.
+4. Selecciona una ubicacion cercana.
+5. En "Rules" pega estas reglas simples:
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /agricola_garcia/{docId} {
+      allow read, write: if true;
+    }
+  }
+}
+
+NOTA: Estas reglas dejan editar a quien tenga el link. Para informacion
+sensible se recomienda agregar login despues.
+
+PASO 3 - COPIAR CONFIGURACION WEB
+
+1. En Firebase ve a Project settings.
+2. En "Your apps", crea una app Web.
+3. Copia apiKey y projectId.
+4. Abre firebase-config.js en esta carpeta.
+5. Cambialo por:
+
+window.AGRICOLA_GARCIA_FIREBASE = {
+  apiKey: "TU_API_KEY",
+  projectId: "TU_PROJECT_ID",
+  collection: "agricola_garcia",
+  document: "siembra_cosechas"
+};
+
+PASO 4 - SUBIR A GITHUB PAGES
+
+1. En GitHub crea un repositorio.
+2. Sube todos los archivos de esta carpeta.
+3. Ve a Settings > Pages.
+4. En Source elige "Deploy from a branch".
+5. Rama: main. Carpeta: /root.
+6. Guarda y espera el link.
+
+RESULTADO
+
+El link de GitHub Pages abre la app.
+Los datos se guardan automaticamente en Firebase Firestore.
+
+LIMITES GRATIS
+
+Firebase Spark tiene cuota gratuita. Si se supera, normalmente se detiene o
+marca limite; no hay tarjeta bancaria si no activas Blaze.

@@ -191,11 +191,22 @@
   let lastCloudStateJson = "";
 
   function normalizeCloudConfig(config) {
+    const firebase = config.firebase || {};
+    const provider = String(config.provider || "node");
+    const endpoint = String(config.endpoint || "").trim();
+    const firebaseReady = Boolean(firebase.apiKey && firebase.projectId);
     return {
-      enabled: Boolean(config.enabled && config.endpoint),
-      endpoint: String(config.endpoint || "").trim(),
+      enabled: Boolean(config.enabled && (endpoint || (provider === "firestore-rest" && firebaseReady))),
+      provider,
+      endpoint,
       editKey: String(config.editKey || "").trim(),
       readOnly: Boolean(config.readOnly),
+      firebase: {
+        apiKey: String(firebase.apiKey || "").trim(),
+        projectId: String(firebase.projectId || "").trim(),
+        collection: String(firebase.collection || "agricola_garcia").trim(),
+        document: String(firebase.document || "siembra_cosechas").trim(),
+      },
       pollMs: Math.max(0, toNumber(config.pollMs || 15000)),
     };
   }
@@ -368,6 +379,7 @@
   }
 
   async function fetchCloudState() {
+    if (cloudConfig.provider === "firestore-rest") return fetchFirestoreState();
     const response = await fetch(cloudConfig.endpoint, {
       method: "GET",
       headers: cloudHeaders(),
@@ -376,6 +388,42 @@
     if (!response.ok) throw new Error(`No se pudo leer la nube (${response.status})`);
     const incoming = await response.json();
     return normalizeState(incoming.state || incoming);
+  }
+
+  function firestoreDocumentUrl() {
+    const { projectId, collection, document, apiKey } = cloudConfig.firebase;
+    const path = `${encodeURIComponent(collection)}/${encodeURIComponent(document)}`;
+    return `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(projectId)}/databases/(default)/documents/${path}?key=${encodeURIComponent(apiKey)}`;
+  }
+
+  async function fetchFirestoreState() {
+    const response = await fetch(firestoreDocumentUrl(), {
+      method: "GET",
+      cache: "no-store",
+    });
+    if (response.status === 404) {
+      await saveFirestoreState(JSON.stringify(state));
+      return normalizeState(state);
+    }
+    if (!response.ok) throw new Error(`No se pudo leer Firestore (${response.status})`);
+    const document = await response.json();
+    const stateJson = document.fields?.stateJson?.stringValue || "";
+    return normalizeState(stateJson ? JSON.parse(stateJson) : seed);
+  }
+
+  async function saveFirestoreState(stateJson) {
+    const body = {
+      fields: {
+        stateJson: { stringValue: stateJson },
+        updatedAt: { timestampValue: new Date().toISOString() },
+      },
+    };
+    const response = await fetch(firestoreDocumentUrl(), {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!response.ok) throw new Error(`No se pudo guardar Firestore (${response.status})`);
   }
 
   async function pushCloudState() {
@@ -389,6 +437,12 @@
     cloudSaving = true;
     setSyncStatus("Guardando en web...", "saving");
     try {
+      if (cloudConfig.provider === "firestore-rest") {
+        await saveFirestoreState(nextJson);
+        lastCloudStateJson = nextJson;
+        setSyncStatus("Guardado gratis en Firebase", "synced");
+        return;
+      }
       const response = await fetch(cloudConfig.endpoint, {
         method: "PUT",
         headers: cloudHeaders(),
@@ -401,7 +455,8 @@
       }
       if (!response.ok) throw new Error(`No se pudo guardar (${response.status})`);
       lastCloudStateJson = nextJson;
-      setSyncStatus(cloudConfig.readOnly ? "Solo lectura" : "Guardado en web", cloudConfig.readOnly ? "readonly" : "synced");
+      const syncedText = cloudConfig.provider === "firestore-rest" ? "Guardado gratis en Firebase" : "Guardado en web";
+      setSyncStatus(cloudConfig.readOnly ? "Solo lectura" : syncedText, cloudConfig.readOnly ? "readonly" : "synced");
     } catch (error) {
       setSyncStatus("Pendiente de sincronizar", "error");
       showToast("No se pudo guardar en la web. Se guardo localmente.");
