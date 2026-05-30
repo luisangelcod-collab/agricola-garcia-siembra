@@ -1,0 +1,12 @@
+{
+  "name": "agricola-garcia-siembra-web",
+  "version": "1.0.0",
+  "private": true,
+  "description": "App web compartida para control de siembra, cosechas e inversiones de Agricola Garcia.",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

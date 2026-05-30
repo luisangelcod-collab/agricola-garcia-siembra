@@ -1,0 +1,458 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Agrícola García - Control de siembra y cosechas</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="report-header">
+        <div class="title-bar">
+          <div class="brand-lockup">
+            <img class="brand-logo" src="agricola-garcia-logo.png" alt="Logo Agricola Garcia" />
+            <div>
+              <p>Control agricola</p>
+              <h1>Agrícola García</h1>
+            </div>
+          </div>
+          <div class="header-status">
+            <span>Reporte por cultivo</span>
+            <strong>Siembra, cosecha e inversion por temporada</strong>
+            <small id="sync-status" class="sync-status">Guardado local</small>
+            <button id="theme-toggle" class="theme-toggle" type="button" aria-pressed="false">Modo nocturno</button>
+          </div>
+        </div>
+        <section class="period-grid" aria-label="Datos del ciclo">
+          <label>
+            <span>Ciclo / temporada</span>
+            <input id="month-input" type="text" autocomplete="off" />
+          </label>
+          <label>
+            <span>Fecha inicio</span>
+            <input id="start-date-input" type="date" />
+          </label>
+          <label>
+            <span>Fecha fin</span>
+            <input id="end-date-input" type="date" />
+          </label>
+          <label>
+            <span>Ingreso extra / anticipo</span>
+            <input id="sales-input" type="number" min="0" step="0.01" />
+          </label>
+        </section>
+      </header>
+
+      <section class="crop-switcher" aria-label="Selector de cultivo activo">
+        <div class="scope-status">
+          <span>Vista actual</span>
+          <strong id="crop-scope-label">Todos los cultivos</strong>
+          <small id="lot-scope-label">Todas las parcelas</small>
+        </div>
+        <label>
+          <span>Cambiar cultivo</span>
+          <select id="global-crop-filter">
+            <option value="TODOS">Todos los cultivos</option>
+          </select>
+        </label>
+        <label>
+          <span>Parcela / lote</span>
+          <select id="global-lot-filter">
+            <option value="TODOS">Todas las parcelas</option>
+          </select>
+        </label>
+      </section>
+
+      <section class="summary-grid" aria-label="Resumen financiero">
+        <article class="summary-cell accent-sales">
+          <span>Ingresos cosecha</span>
+          <strong id="total-sales">$0.00</strong>
+        </article>
+        <article class="summary-cell accent-blue">
+          <span>Inversion cultivo</span>
+          <strong id="total-providers">$0.00</strong>
+        </article>
+        <article class="summary-cell accent-tan">
+          <span>Maquinaria / diesel</span>
+          <strong id="total-store">$0.00</strong>
+        </article>
+        <article class="summary-cell accent-green">
+          <span>Peones / mano de obra</span>
+          <strong id="total-salaries">$0.00</strong>
+        </article>
+        <article class="summary-cell total-cell">
+          <span>Costo total</span>
+          <strong id="total-costs">$0.00</strong>
+        </article>
+        <article class="summary-cell accent-gray" id="profit-card">
+          <span>Ganancia / perdida</span>
+          <strong id="total-external">$0.00</strong>
+        </article>
+      </section>
+
+      <section class="insight-band">
+        <p id="summary-message">Registra cosechas, ventas e inversiones para saber cuanto deja cada cultivo.</p>
+        <div class="bars" aria-label="Distribucion de ingresos y costos">
+          <div class="bar-row">
+            <span>Ingresos</span>
+            <div class="bar-track"><i id="bar-providers"></i></div>
+          </div>
+          <div class="bar-row">
+            <span>Inversion</span>
+            <div class="bar-track"><i id="bar-store"></i></div>
+          </div>
+          <div class="bar-row">
+            <span>Maquinaria</span>
+            <div class="bar-track"><i id="bar-external"></i></div>
+          </div>
+          <div class="bar-row">
+            <span>Peones</span>
+            <div class="bar-track"><i id="bar-salaries"></i></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="crop-grid" id="crop-summary" aria-label="Resumen por cultivo"></section>
+      <section class="lot-grid" id="lot-summary" aria-label="Resumen por parcela"></section>
+
+      <nav class="section-tabs" aria-label="Secciones del reporte">
+        <button class="section-tab" data-section="cultivos" data-tooltip="Da de alta los cultivos de la temporada: tipo, lote, hectareas, fechas y estado." type="button">Cultivos temporada</button>
+        <button class="section-tab active" data-section="ingresos" data-tooltip="Registra lo vendido o cobrado por cosecha, comprador, cantidad, precio y fecha." type="button">Ingresos cosecha</button>
+        <button class="section-tab" data-section="inversiones" data-tooltip="Captura renta, semilla, fertilizante, riego, empaque, fletes y otros costos del cultivo." type="button">Inversion cultivo</button>
+        <button class="section-tab" data-section="maquinaria" data-tooltip="Controla trabajos de tractor, implementos, diesel, mantenimiento, horas o viajes." type="button">Maquinaria / diesel</button>
+        <button class="section-tab" data-section="manoObra" data-tooltip="Registra peones, jornales, actividades, pagos diarios y pendientes de mano de obra." type="button">Peones / mano de obra</button>
+      </nav>
+
+      <section class="workspace">
+        <aside class="entry-panel" aria-label="Captura de registros">
+          <div class="panel-heading">
+            <h2 id="form-title">Nuevo ingreso de cosecha</h2>
+            <button id="clear-form-btn" class="ghost-btn" type="button">Limpiar</button>
+          </div>
+
+          <form id="transaction-form" class="entry-form">
+            <label>
+              <span>Clasificacion</span>
+              <select id="entry-section">
+                <option value="ingresos">Ingreso de cosecha</option>
+                <option value="inversiones">Inversion / gasto de cultivo</option>
+                <option value="maquinaria">Maquinaria / diesel</option>
+              </select>
+            </label>
+            <div class="two-col">
+              <label>
+                <span>Cultivo</span>
+                <input id="entry-crop" type="text" list="crop-options" autocomplete="off" />
+              </label>
+              <label>
+                <span>Lote / parcela</span>
+                <input id="entry-lot" type="text" list="lot-options" autocomplete="off" />
+              </label>
+            </div>
+            <div class="two-col">
+              <label>
+                <span id="name-label">Comprador</span>
+                <input id="entry-name" type="text" list="known-names" autocomplete="off" />
+              </label>
+              <label>
+                <span id="category-label">Producto / calidad</span>
+                <input id="entry-category" type="text" list="category-options" autocomplete="off" />
+              </label>
+            </div>
+            <label>
+              <span>Concepto</span>
+              <textarea id="entry-concept" rows="3"></textarea>
+            </label>
+            <div class="three-col">
+              <label>
+                <span id="quantity-label">Cantidad cosechada</span>
+                <input id="entry-quantity" type="number" min="0" step="0.01" />
+              </label>
+              <label>
+                <span>Unidad</span>
+                <input id="entry-unit" type="text" list="unit-options" autocomplete="off" />
+              </label>
+              <label>
+                <span id="unit-price-label">Precio unitario</span>
+                <input id="entry-unit-price" type="number" min="0" step="0.01" />
+              </label>
+            </div>
+            <div class="two-col">
+              <label>
+                <span>Monto total</span>
+                <input id="entry-amount" type="number" min="0" step="0.01" />
+              </label>
+              <label>
+                <span>Pagado / cobrado</span>
+                <select id="entry-paid">
+                  <option value="SI">SI</option>
+                  <option value="NO">NO</option>
+                </select>
+              </label>
+            </div>
+            <div class="two-col">
+              <label>
+                <span>Fecha</span>
+                <input id="entry-date" type="date" />
+              </label>
+              <label>
+                <span>Metodo</span>
+                <input id="entry-method" list="payment-methods" autocomplete="off" />
+              </label>
+            </div>
+            <label>
+              <span id="reference-label">Comprobante</span>
+              <input id="entry-reference" type="text" autocomplete="off" />
+            </label>
+            <label>
+              <span>Notas</span>
+              <textarea id="entry-notes" rows="3"></textarea>
+            </label>
+            <button id="transaction-submit" class="primary-btn" type="submit">Guardar ingreso de cosecha</button>
+          </form>
+
+          <form id="salary-form" class="entry-form hidden">
+            <div class="two-col">
+              <label>
+                <span>Cultivo</span>
+                <input id="salary-crop" type="text" list="crop-options" autocomplete="off" />
+              </label>
+              <label>
+                <span>Lote / parcela</span>
+                <input id="salary-lot" type="text" list="lot-options" autocomplete="off" />
+              </label>
+            </div>
+            <label>
+              <span>Peon / trabajador</span>
+              <input id="salary-employee" type="text" autocomplete="off" />
+            </label>
+            <label>
+              <span>Actividad</span>
+              <input id="salary-period" list="activity-options" autocomplete="off" />
+            </label>
+            <div class="two-col">
+              <label>
+                <span>Jornales / dias</span>
+                <input id="salary-turns" type="number" min="0" step="0.5" />
+              </label>
+              <label>
+                <span>Pago por jornal</span>
+                <input id="salary-daily" type="number" min="0" step="0.01" />
+              </label>
+            </div>
+            <div class="two-col">
+              <label>
+                <span>Subtotal</span>
+                <input id="salary-subtotal" type="number" min="0" step="0.01" />
+              </label>
+              <label>
+                <span>Pagado</span>
+                <select id="salary-paid">
+                  <option value="SI">SI</option>
+                  <option value="NO">NO</option>
+                </select>
+              </label>
+            </div>
+            <div class="two-col">
+              <label>
+                <span>Fecha</span>
+                <input id="salary-date" type="date" />
+              </label>
+              <label>
+                <span>Metodo</span>
+                <input id="salary-method" list="payment-methods" autocomplete="off" />
+              </label>
+            </div>
+            <label>
+              <span>Observaciones</span>
+              <textarea id="salary-notes" rows="3"></textarea>
+            </label>
+            <button id="salary-submit" class="primary-btn" type="submit">Guardar mano de obra</button>
+          </form>
+
+          <form id="crop-plan-form" class="entry-form hidden">
+            <div class="two-col">
+              <label>
+                <span>Cultivo</span>
+                <input id="plan-crop" type="text" list="crop-options" autocomplete="off" />
+              </label>
+              <label>
+                <span>Tipo / variedad</span>
+                <input id="plan-variety" type="text" list="crop-variety-options" autocomplete="off" />
+              </label>
+            </div>
+            <div class="two-col">
+              <label>
+                <span>Temporada / ciclo</span>
+                <input id="plan-season" type="text" autocomplete="off" />
+              </label>
+              <label>
+                <span>Lote / parcela</span>
+                <input id="plan-lot" type="text" list="lot-options" autocomplete="off" />
+              </label>
+            </div>
+            <div class="two-col">
+              <label>
+                <span>Hectareas</span>
+                <input id="plan-hectares" type="number" min="0" step="0.01" />
+              </label>
+              <label>
+                <span>Estado</span>
+                <select id="plan-status">
+                  <option value="PLANEADO">PLANEADO</option>
+                  <option value="EN PREPARACION">EN PREPARACION</option>
+                  <option value="SEMBRADO">SEMBRADO</option>
+                  <option value="EN COSECHA">EN COSECHA</option>
+                  <option value="CERRADO">CERRADO</option>
+                  <option value="PAUSADO">PAUSADO</option>
+                </select>
+              </label>
+            </div>
+            <div class="two-col">
+              <label>
+                <span>Fecha siembra</span>
+                <input id="plan-start-date" type="date" />
+              </label>
+              <label>
+                <span>Cosecha estimada</span>
+                <input id="plan-harvest-date" type="date" />
+              </label>
+            </div>
+            <label>
+              <span>Notas del cultivo</span>
+              <textarea id="plan-notes" rows="3"></textarea>
+            </label>
+            <button id="plan-submit" class="primary-btn" type="submit">Guardar cultivo de temporada</button>
+          </form>
+
+          <div class="panel-actions">
+            <button id="export-csv-btn" type="button">Exportar CSV</button>
+            <button id="backup-json-btn" type="button">Respaldo JSON</button>
+            <button id="share-app-btn" class="share-btn" type="button" title="Prepara un archivo con tus datos actuales para mandarlo a otra computadora.">Compartir</button>
+            <label class="file-btn">
+              Cargar JSON
+              <input id="import-json-input" type="file" accept="application/json" />
+            </label>
+            <button id="print-btn" type="button">Generar PDF</button>
+            <button id="visual-pdf-btn" class="visual-btn" type="button">PDF socios</button>
+            <button id="restore-seed-btn" class="danger-btn" type="button">Restaurar ejemplo</button>
+          </div>
+        </aside>
+
+        <section class="table-panel">
+          <div class="table-toolbar">
+            <div>
+              <h2 id="section-title">Ingresos de cosecha</h2>
+              <p id="section-subtitle">0 registros</p>
+            </div>
+            <div class="filters">
+              <label>
+                <span>Buscar</span>
+                <input id="search-input" type="search" placeholder="Cultivo, lote, concepto, nota..." />
+              </label>
+              <label>
+                <span>Cultivo</span>
+                <select id="crop-filter">
+                  <option value="TODOS">Todos</option>
+                </select>
+              </label>
+              <label>
+                <span>Parcela</span>
+                <select id="lot-filter">
+                  <option value="TODOS">Todas</option>
+                </select>
+              </label>
+              <label>
+                <span>Pagado</span>
+                <select id="paid-filter">
+                  <option value="TODOS">Todos</option>
+                  <option value="SI">SI</option>
+                  <option value="NO">NO</option>
+                </select>
+              </label>
+              <label>
+                <span>Desde</span>
+                <input id="from-filter" type="date" />
+              </label>
+              <label>
+                <span>Hasta</span>
+                <input id="to-filter" type="date" />
+              </label>
+            </div>
+          </div>
+
+          <div class="table-wrap">
+            <table id="records-table">
+              <thead id="table-head"></thead>
+              <tbody id="table-body"></tbody>
+              <tfoot id="table-foot"></tfoot>
+            </table>
+          </div>
+        </section>
+      </section>
+
+      <section id="pdf-report" class="pdf-report" aria-label="Reporte PDF"></section>
+    </main>
+
+    <datalist id="payment-methods">
+      <option value="EFECTIVO"></option>
+      <option value="TRANSFERENCIA"></option>
+      <option value="CHEQUE"></option>
+      <option value="CREDITO"></option>
+      <option value="OTRO"></option>
+    </datalist>
+    <datalist id="crop-options">
+      <option value="MAIZ"></option>
+      <option value="TRIGO"></option>
+      <option value="CEBOLLA"></option>
+      <option value="CHILE"></option>
+      <option value="TOMATE"></option>
+      <option value="JITOMATE"></option>
+      <option value="FRIJOL"></option>
+      <option value="SORGO"></option>
+    </datalist>
+    <datalist id="lot-options"></datalist>
+    <datalist id="known-names"></datalist>
+    <datalist id="category-options"></datalist>
+    <datalist id="unit-options">
+      <option value="KG"></option>
+      <option value="TON"></option>
+      <option value="CAJA"></option>
+      <option value="COSTAL"></option>
+      <option value="MANOJO"></option>
+      <option value="HECTAREA"></option>
+      <option value="LITRO"></option>
+      <option value="HORA"></option>
+      <option value="VIAJE"></option>
+      <option value="JORNAL"></option>
+    </datalist>
+    <datalist id="activity-options">
+      <option value="Siembra"></option>
+      <option value="Riego"></option>
+      <option value="Deshierbe"></option>
+      <option value="Fertilizacion"></option>
+      <option value="Fumigacion"></option>
+      <option value="Corte"></option>
+      <option value="Cosecha"></option>
+      <option value="Carga"></option>
+      <option value="Seleccion / empaque"></option>
+    </datalist>
+    <datalist id="crop-variety-options">
+      <option value="BLANCO"></option>
+      <option value="AMARILLO"></option>
+      <option value="FORRAJERO"></option>
+      <option value="BOLA"></option>
+      <option value="ROMA"></option>
+      <option value="SALSADETTE"></option>
+      <option value="SERRANO"></option>
+      <option value="JALAPENO"></option>
+      <option value="GUAJILLO"></option>
+    </datalist>
+
+    <div id="toast" role="status" aria-live="polite"></div>
+    <script src="cloud-config.js"></script>
+    <script src="seed-data.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>

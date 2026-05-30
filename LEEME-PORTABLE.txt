@@ -1,0 +1,31 @@
+AGRICOLA GARCIA - CONTROL DE SIEMBRA Y COSECHAS
+
+FORMA MAS FACIL DE COMPARTIR
+
+1. Envia el archivo:
+   Agricola-Garcia-Control-Siembra-Portable.html
+
+2. La otra persona lo abre con doble clic.
+   No necesita internet, servidor ni instalacion.
+
+3. Cada computadora guarda sus datos en su propio navegador.
+   Si quieres mover los registros de una computadora a otra:
+   - En la app original usa "Compartir" o "Respaldo JSON".
+   - En la otra computadora usa "Cargar JSON".
+
+4. Tambien puedes enviar el ZIP:
+   Agricola-Garcia-Control-Siembra-Portable.zip
+
+IMPORTAR LOS GASTOS DE TOMATE
+
+El archivo tomate-gastos-2026-importar.json sirve para agregar los gastos
+transcritos de la libreta del cultivo de tomate sin borrar otros registros.
+
+En la app:
+1. Presiona "Cargar JSON".
+2. Selecciona tomate-gastos-2026-importar.json.
+3. Los registros se agregan al analitico.
+
+NOTA
+El archivo portable ya trae adentro el logo, colores, reportes PDF,
+selector de cultivo activo y toda la app.

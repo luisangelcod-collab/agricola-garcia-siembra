@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: agricola-garcia-siembra
+    runtime: node
+    plan: starter
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: DATA_FILE
+        value: /data/siembra-state.json
+      - key: EDIT_KEY
+        sync: false
+    disk:
+      name: agricola-garcia-data
+      mountPath: /data
+      sizeGB: 1
