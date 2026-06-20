@@ -1502,14 +1502,17 @@
   }
 
   function renderPdfReport() {
-    const t = totals();
+    const scopeCrop = currentScopeCrop();
+    const scopeLot = currentScopeLot();
+    const scopeLabel = pdfScopeLabel(scopeCrop, scopeLot);
+    const t = totals(scopeCrop, scopeLot);
     const period = `${displayDate(state.settings.fechaInicio)} - ${displayDate(state.settings.fechaFin)}`;
     els.pdfReport.innerHTML = `
       ${reportWatermark()}
       <div class="report-cover">
         <p class="report-kicker">Agrícola García</p>
-        <h1>Reporte de siembra y cosechas ${htmlEscape(state.settings.mes || "")}</h1>
-        <p class="report-period">${htmlEscape(period)}</p>
+        <h1>Reporte de siembra y cosechas: ${htmlEscape(scopeLabel)}</h1>
+        <p class="report-period">${htmlEscape(state.settings.mes || "")} | ${htmlEscape(period)}</p>
       </div>
 
       <section class="report-summary">
@@ -1553,37 +1556,51 @@
         </table>
       </section>
 
-      ${reportCropPlans()}
-      ${reportCropSummary()}
-      ${reportTransactions("ingresos")}
-      ${reportTransactions("inversiones")}
-      ${reportTransactions("maquinaria")}
-      ${reportLabor()}
+      ${reportCropPlans(scopeCrop, scopeLot)}
+      ${reportCropSummary(scopeCrop, scopeLot)}
+      ${reportTransactions("ingresos", scopeCrop, scopeLot)}
+      ${reportTransactions("inversiones", scopeCrop, scopeLot)}
+      ${reportTransactions("maquinaria", scopeCrop, scopeLot)}
+      ${reportLabor(scopeCrop, scopeLot)}
     `;
   }
 
-  function reportCropSummary() {
-    const crops = allCrops().filter(Boolean);
-    if (!crops.length) return "";
+  function pdfScopeLabel(scopeCrop = "", scopeLot = "") {
+    if (scopeCrop && scopeLot) return `${scopeCrop} | Parcela ${scopeLot}`;
+    if (scopeLot) return `Parcela ${scopeLot}`;
+    if (scopeCrop) return scopeCrop;
+    return "Todos los cultivos y parcelas";
+  }
+
+  function reportCropSummary(scopeCrop = "", scopeLot = "") {
+    const scopes = scopeLot
+      ? lotScopes(scopeCrop).filter((scope) => scope.lote === scopeLot)
+      : scopeCrop
+      ? [{ cultivo: scopeCrop, lote: "" }]
+      : allCrops().filter(Boolean).map((crop) => ({ cultivo: crop, lote: "" }));
+    if (!scopes.length) return "";
+    const includesLot = scopes.some((scope) => scope.lote);
     return `
       <section class="report-block page-break-avoid">
-        <h2>Resultado por cultivo</h2>
+        <h2>${includesLot ? "Resultado por lote" : "Resultado por cultivo"}</h2>
         <table class="report-detail-table">
           <thead>
             <tr>
               <th>Cultivo</th>
+              ${includesLot ? "<th>Lote</th>" : ""}
               <th>Ingresos</th>
               <th>Costos</th>
               <th>Utilidad</th>
             </tr>
           </thead>
           <tbody>
-            ${crops
-              .map((crop) => {
-                const t = totals(crop);
+            ${scopes
+              .map((scope) => {
+                const t = totals(scope.cultivo, scope.lote);
                 return `
                   <tr>
-                    <td>${htmlEscape(crop)}</td>
+                    <td>${htmlEscape(scope.cultivo)}</td>
+                    ${includesLot ? `<td>${htmlEscape(scope.lote)}</td>` : ""}
                     <td class="money">${money(t.totalIncome)}</td>
                     <td class="money">${money(t.totalCosts)}</td>
                     <td class="money">${money(t.profit)}</td>
@@ -1597,8 +1614,8 @@
     `;
   }
 
-  function reportCropPlans() {
-    const rows = state.cultivos || [];
+  function reportCropPlans(scopeCrop = "", scopeLot = "") {
+    const rows = filterByScope(state.cultivos || [], scopeCrop, scopeLot);
     if (!rows.length) return "";
     return `
       <section class="report-block page-break-avoid">
@@ -1641,9 +1658,9 @@
     `;
   }
 
-  function reportTransactions(section) {
+  function reportTransactions(section, scopeCrop = "", scopeLot = "") {
     const config = sectionConfig[section];
-    const rows = state[section] || [];
+    const rows = filterByScope(state[section] || [], scopeCrop, scopeLot);
     const total = sumRows(rows);
     return `
       <section class="report-block page-break-avoid">
@@ -1688,8 +1705,8 @@
     `;
   }
 
-  function reportLabor() {
-    const rows = state.manoObra || [];
+  function reportLabor(scopeCrop = "", scopeLot = "") {
+    const rows = filterByScope(state.manoObra || [], scopeCrop, scopeLot);
     const total = rows.reduce((sum, row) => sum + laborSubtotal(row), 0);
     return `
       <section class="report-block page-break-avoid">
@@ -1739,7 +1756,10 @@
   }
 
   function renderVisualPdfReport() {
-    const t = totals();
+    const scopeCrop = currentScopeCrop();
+    const scopeLot = currentScopeLot();
+    const scopeLabel = pdfScopeLabel(scopeCrop, scopeLot);
+    const t = totals(scopeCrop, scopeLot);
     const period = `${displayDate(state.settings.fechaInicio)} - ${displayDate(state.settings.fechaFin)}`;
     const resultLabel = t.profit >= 0 ? "Ganancia" : "Perdida";
     const resultClass = t.profit >= 0 ? "result-positive" : "result-negative";
@@ -1750,8 +1770,8 @@
         <section class="partner-hero">
           <div>
             <p class="report-kicker">Agrícola García | Formato visual para socios</p>
-            <h1>Resultado de siembra y cosechas ${htmlEscape(state.settings.mes || "")}</h1>
-            <p class="report-period">${htmlEscape(period)}</p>
+            <h1>Resultado de siembra y cosechas: ${htmlEscape(scopeLabel)}</h1>
+            <p class="report-period">${htmlEscape(state.settings.mes || "")} | ${htmlEscape(period)}</p>
           </div>
           <div class="partner-result ${resultClass}">
             <span>${resultLabel}</span>
@@ -1783,8 +1803,8 @@
           </div>
         </section>
 
-        ${visualCropPlanOverview()}
-        ${visualCropOverview()}
+        ${visualCropPlanOverview(scopeCrop, scopeLot)}
+        ${visualCropOverview(scopeCrop, scopeLot)}
       </article>
     `;
   }
@@ -1815,21 +1835,26 @@
     `;
   }
 
-  function visualCropOverview() {
-    const crops = allCrops().filter(Boolean).sort((a, b) => a.localeCompare(b, "es"));
-    if (!crops.length) return "";
+  function visualCropOverview(scopeCrop = "", scopeLot = "") {
+    const scopes = scopeLot
+      ? lotScopes(scopeCrop).filter((scope) => scope.lote === scopeLot)
+      : scopeCrop
+      ? [{ cultivo: scopeCrop, lote: "" }]
+      : allCrops().filter(Boolean).sort((a, b) => a.localeCompare(b, "es")).map((crop) => ({ cultivo: crop, lote: "" }));
+    if (!scopes.length) return "";
+    const includesLot = scopes.some((scope) => scope.lote);
     return `
       <section class="partner-crops">
-        <h2>Resultado por cultivo</h2>
+        <h2>${includesLot ? "Resultado por lote" : "Resultado por cultivo"}</h2>
         <div>
-          ${crops
-            .map((crop) => {
-              const t = totals(crop);
+          ${scopes
+            .map((scope) => {
+              const t = totals(scope.cultivo, scope.lote);
               const margin = t.totalIncome ? (t.profit / t.totalIncome) * 100 : 0;
               const cls = t.profit >= 0 ? "crop-profit" : "crop-loss";
               return `
                 <article>
-                  <span>${htmlEscape(crop)}</span>
+                  <span>${htmlEscape(scope.cultivo)}${scope.lote ? ` | ${htmlEscape(scope.lote)}` : ""}</span>
                   <strong class="${cls}">${money(t.profit)}</strong>
                   <dl>
                     <div><dt>Ingreso</dt><dd>${money(t.totalIncome)}</dd></div>
@@ -1845,12 +1870,12 @@
     `;
   }
 
-  function visualCropPlanOverview() {
-    const rows = state.cultivos || [];
+  function visualCropPlanOverview(scopeCrop = "", scopeLot = "") {
+    const rows = filterByScope(state.cultivos || [], scopeCrop, scopeLot);
     if (!rows.length) return "";
     return `
       <section class="partner-crops partner-plans">
-        <h2>Cultivos activos en esta temporada</h2>
+        <h2>${scopeLot ? "Parcela incluida en el reporte" : "Cultivos incluidos en el reporte"}</h2>
         <div>
           ${rows
             .map(

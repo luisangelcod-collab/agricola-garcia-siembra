@@ -2006,8 +2006,8 @@ body.dark-mode tfoot td {
               Cargar JSON
               <input id="import-json-input" type="file" accept="application/json" />
             </label>
-            <button id="print-btn" type="button">Generar PDF</button>
-            <button id="visual-pdf-btn" class="visual-btn" type="button">PDF socios</button>
+            <button id="print-btn" type="button" title="Genera el PDF del cultivo y parcela seleccionados arriba.">Generar PDF</button>
+            <button id="visual-pdf-btn" class="visual-btn" type="button" title="Genera el reporte para socios del cultivo y parcela seleccionados arriba.">PDF socios</button>
             <button id="restore-seed-btn" class="danger-btn" type="button">Restaurar ejemplo</button>
           </div>
         </aside>
@@ -2124,16 +2124,42 @@ body.dark-mode tfoot td {
 
     <div id="toast" role="status" aria-live="polite"></div>
     <script>
+window.AGRICOLA_GARCIA_FIREBASE = {
+  apiKey: "AIzaSyBmDUlwZKPod7z0Qf9RLPII4vRNASrmX3c",
+  projectId: "agricola-garcia",
+  collection: "agricola_garcia",
+  document: "siembra_cosechas"
+};
+
+</script>
+    <script>
 (function () {
   const params = new URLSearchParams(String(window.location.hash || "").replace(/^#/, ""));
-  window.AGRICOLA_GARCIA_CLOUD = {
-    enabled: window.location.protocol === "http:" || window.location.protocol === "https:",
-    endpoint: "/api/state",
-    editKey: params.get("edit") || "",
-    editKeyRequired: false,
-    readOnly: false,
-    pollMs: 15000,
-  };
+  const firebase = window.AGRICOLA_GARCIA_FIREBASE;
+  const hasFirebase = Boolean(firebase && firebase.apiKey && firebase.projectId);
+  const isWeb = window.location.protocol === "http:" || window.location.protocol === "https:";
+  const isGithubPages = /(^|\.)github\.io$/i.test(window.location.hostname);
+
+  window.AGRICOLA_GARCIA_CLOUD = hasFirebase
+    ? {
+        enabled: isWeb,
+        provider: "firestore-rest",
+        firebase,
+        endpoint: "",
+        editKey: params.get("edit") || "",
+        editKeyRequired: false,
+        readOnly: false,
+        pollMs: 15000,
+      }
+    : {
+        enabled: isWeb && !isGithubPages,
+        provider: "node",
+        endpoint: "/api/state",
+        editKey: params.get("edit") || "",
+        editKeyRequired: false,
+        readOnly: false,
+        pollMs: 15000,
+      };
 })();
 
 </script>
@@ -2871,11 +2897,22 @@ window.SIEMBRA_COSECHAS_SEED = {
   let lastCloudStateJson = "";
 
   function normalizeCloudConfig(config) {
+    const firebase = config.firebase || {};
+    const provider = String(config.provider || "node");
+    const endpoint = String(config.endpoint || "").trim();
+    const firebaseReady = Boolean(firebase.apiKey && firebase.projectId);
     return {
-      enabled: Boolean(config.enabled && config.endpoint),
-      endpoint: String(config.endpoint || "").trim(),
+      enabled: Boolean(config.enabled && (endpoint || (provider === "firestore-rest" && firebaseReady))),
+      provider,
+      endpoint,
       editKey: String(config.editKey || "").trim(),
       readOnly: Boolean(config.readOnly),
+      firebase: {
+        apiKey: String(firebase.apiKey || "").trim(),
+        projectId: String(firebase.projectId || "").trim(),
+        collection: String(firebase.collection || "agricola_garcia").trim(),
+        document: String(firebase.document || "siembra_cosechas").trim(),
+      },
       pollMs: Math.max(0, toNumber(config.pollMs || 15000)),
     };
   }
@@ -3048,6 +3085,7 @@ window.SIEMBRA_COSECHAS_SEED = {
   }
 
   async function fetchCloudState() {
+    if (cloudConfig.provider === "firestore-rest") return fetchFirestoreState();
     const response = await fetch(cloudConfig.endpoint, {
       method: "GET",
       headers: cloudHeaders(),
@@ -3056,6 +3094,42 @@ window.SIEMBRA_COSECHAS_SEED = {
     if (!response.ok) throw new Error(`No se pudo leer la nube (${response.status})`);
     const incoming = await response.json();
     return normalizeState(incoming.state || incoming);
+  }
+
+  function firestoreDocumentUrl() {
+    const { projectId, collection, document, apiKey } = cloudConfig.firebase;
+    const path = `${encodeURIComponent(collection)}/${encodeURIComponent(document)}`;
+    return `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(projectId)}/databases/(default)/documents/${path}?key=${encodeURIComponent(apiKey)}`;
+  }
+
+  async function fetchFirestoreState() {
+    const response = await fetch(firestoreDocumentUrl(), {
+      method: "GET",
+      cache: "no-store",
+    });
+    if (response.status === 404) {
+      await saveFirestoreState(JSON.stringify(state));
+      return normalizeState(state);
+    }
+    if (!response.ok) throw new Error(`No se pudo leer Firestore (${response.status})`);
+    const document = await response.json();
+    const stateJson = document.fields?.stateJson?.stringValue || "";
+    return normalizeState(stateJson ? JSON.parse(stateJson) : seed);
+  }
+
+  async function saveFirestoreState(stateJson) {
+    const body = {
+      fields: {
+        stateJson: { stringValue: stateJson },
+        updatedAt: { timestampValue: new Date().toISOString() },
+      },
+    };
+    const response = await fetch(firestoreDocumentUrl(), {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!response.ok) throw new Error(`No se pudo guardar Firestore (${response.status})`);
   }
 
   async function pushCloudState() {
@@ -3069,6 +3143,12 @@ window.SIEMBRA_COSECHAS_SEED = {
     cloudSaving = true;
     setSyncStatus("Guardando en web...", "saving");
     try {
+      if (cloudConfig.provider === "firestore-rest") {
+        await saveFirestoreState(nextJson);
+        lastCloudStateJson = nextJson;
+        setSyncStatus("Guardado gratis en Firebase", "synced");
+        return;
+      }
       const response = await fetch(cloudConfig.endpoint, {
         method: "PUT",
         headers: cloudHeaders(),
@@ -3081,7 +3161,8 @@ window.SIEMBRA_COSECHAS_SEED = {
       }
       if (!response.ok) throw new Error(`No se pudo guardar (${response.status})`);
       lastCloudStateJson = nextJson;
-      setSyncStatus(cloudConfig.readOnly ? "Solo lectura" : "Guardado en web", cloudConfig.readOnly ? "readonly" : "synced");
+      const syncedText = cloudConfig.provider === "firestore-rest" ? "Guardado gratis en Firebase" : "Guardado en web";
+      setSyncStatus(cloudConfig.readOnly ? "Solo lectura" : syncedText, cloudConfig.readOnly ? "readonly" : "synced");
     } catch (error) {
       setSyncStatus("Pendiente de sincronizar", "error");
       showToast("No se pudo guardar en la web. Se guardo localmente.");
@@ -4127,14 +4208,17 @@ window.SIEMBRA_COSECHAS_SEED = {
   }
 
   function renderPdfReport() {
-    const t = totals();
+    const scopeCrop = currentScopeCrop();
+    const scopeLot = currentScopeLot();
+    const scopeLabel = pdfScopeLabel(scopeCrop, scopeLot);
+    const t = totals(scopeCrop, scopeLot);
     const period = `${displayDate(state.settings.fechaInicio)} - ${displayDate(state.settings.fechaFin)}`;
     els.pdfReport.innerHTML = `
       ${reportWatermark()}
       <div class="report-cover">
         <p class="report-kicker">Agrícola García</p>
-        <h1>Reporte de siembra y cosechas ${htmlEscape(state.settings.mes || "")}</h1>
-        <p class="report-period">${htmlEscape(period)}</p>
+        <h1>Reporte de siembra y cosechas: ${htmlEscape(scopeLabel)}</h1>
+        <p class="report-period">${htmlEscape(state.settings.mes || "")} | ${htmlEscape(period)}</p>
       </div>
 
       <section class="report-summary">
@@ -4178,37 +4262,51 @@ window.SIEMBRA_COSECHAS_SEED = {
         </table>
       </section>
 
-      ${reportCropPlans()}
-      ${reportCropSummary()}
-      ${reportTransactions("ingresos")}
-      ${reportTransactions("inversiones")}
-      ${reportTransactions("maquinaria")}
-      ${reportLabor()}
+      ${reportCropPlans(scopeCrop, scopeLot)}
+      ${reportCropSummary(scopeCrop, scopeLot)}
+      ${reportTransactions("ingresos", scopeCrop, scopeLot)}
+      ${reportTransactions("inversiones", scopeCrop, scopeLot)}
+      ${reportTransactions("maquinaria", scopeCrop, scopeLot)}
+      ${reportLabor(scopeCrop, scopeLot)}
     `;
   }
 
-  function reportCropSummary() {
-    const crops = allCrops().filter(Boolean);
-    if (!crops.length) return "";
+  function pdfScopeLabel(scopeCrop = "", scopeLot = "") {
+    if (scopeCrop && scopeLot) return `${scopeCrop} | Parcela ${scopeLot}`;
+    if (scopeLot) return `Parcela ${scopeLot}`;
+    if (scopeCrop) return scopeCrop;
+    return "Todos los cultivos y parcelas";
+  }
+
+  function reportCropSummary(scopeCrop = "", scopeLot = "") {
+    const scopes = scopeLot
+      ? lotScopes(scopeCrop).filter((scope) => scope.lote === scopeLot)
+      : scopeCrop
+      ? [{ cultivo: scopeCrop, lote: "" }]
+      : allCrops().filter(Boolean).map((crop) => ({ cultivo: crop, lote: "" }));
+    if (!scopes.length) return "";
+    const includesLot = scopes.some((scope) => scope.lote);
     return `
       <section class="report-block page-break-avoid">
-        <h2>Resultado por cultivo</h2>
+        <h2>${includesLot ? "Resultado por lote" : "Resultado por cultivo"}</h2>
         <table class="report-detail-table">
           <thead>
             <tr>
               <th>Cultivo</th>
+              ${includesLot ? "<th>Lote</th>" : ""}
               <th>Ingresos</th>
               <th>Costos</th>
               <th>Utilidad</th>
             </tr>
           </thead>
           <tbody>
-            ${crops
-              .map((crop) => {
-                const t = totals(crop);
+            ${scopes
+              .map((scope) => {
+                const t = totals(scope.cultivo, scope.lote);
                 return `
                   <tr>
-                    <td>${htmlEscape(crop)}</td>
+                    <td>${htmlEscape(scope.cultivo)}</td>
+                    ${includesLot ? `<td>${htmlEscape(scope.lote)}</td>` : ""}
                     <td class="money">${money(t.totalIncome)}</td>
                     <td class="money">${money(t.totalCosts)}</td>
                     <td class="money">${money(t.profit)}</td>
@@ -4222,8 +4320,8 @@ window.SIEMBRA_COSECHAS_SEED = {
     `;
   }
 
-  function reportCropPlans() {
-    const rows = state.cultivos || [];
+  function reportCropPlans(scopeCrop = "", scopeLot = "") {
+    const rows = filterByScope(state.cultivos || [], scopeCrop, scopeLot);
     if (!rows.length) return "";
     return `
       <section class="report-block page-break-avoid">
@@ -4266,9 +4364,9 @@ window.SIEMBRA_COSECHAS_SEED = {
     `;
   }
 
-  function reportTransactions(section) {
+  function reportTransactions(section, scopeCrop = "", scopeLot = "") {
     const config = sectionConfig[section];
-    const rows = state[section] || [];
+    const rows = filterByScope(state[section] || [], scopeCrop, scopeLot);
     const total = sumRows(rows);
     return `
       <section class="report-block page-break-avoid">
@@ -4313,8 +4411,8 @@ window.SIEMBRA_COSECHAS_SEED = {
     `;
   }
 
-  function reportLabor() {
-    const rows = state.manoObra || [];
+  function reportLabor(scopeCrop = "", scopeLot = "") {
+    const rows = filterByScope(state.manoObra || [], scopeCrop, scopeLot);
     const total = rows.reduce((sum, row) => sum + laborSubtotal(row), 0);
     return `
       <section class="report-block page-break-avoid">
@@ -4364,7 +4462,10 @@ window.SIEMBRA_COSECHAS_SEED = {
   }
 
   function renderVisualPdfReport() {
-    const t = totals();
+    const scopeCrop = currentScopeCrop();
+    const scopeLot = currentScopeLot();
+    const scopeLabel = pdfScopeLabel(scopeCrop, scopeLot);
+    const t = totals(scopeCrop, scopeLot);
     const period = `${displayDate(state.settings.fechaInicio)} - ${displayDate(state.settings.fechaFin)}`;
     const resultLabel = t.profit >= 0 ? "Ganancia" : "Perdida";
     const resultClass = t.profit >= 0 ? "result-positive" : "result-negative";
@@ -4375,8 +4476,8 @@ window.SIEMBRA_COSECHAS_SEED = {
         <section class="partner-hero">
           <div>
             <p class="report-kicker">Agrícola García | Formato visual para socios</p>
-            <h1>Resultado de siembra y cosechas ${htmlEscape(state.settings.mes || "")}</h1>
-            <p class="report-period">${htmlEscape(period)}</p>
+            <h1>Resultado de siembra y cosechas: ${htmlEscape(scopeLabel)}</h1>
+            <p class="report-period">${htmlEscape(state.settings.mes || "")} | ${htmlEscape(period)}</p>
           </div>
           <div class="partner-result ${resultClass}">
             <span>${resultLabel}</span>
@@ -4408,8 +4509,8 @@ window.SIEMBRA_COSECHAS_SEED = {
           </div>
         </section>
 
-        ${visualCropPlanOverview()}
-        ${visualCropOverview()}
+        ${visualCropPlanOverview(scopeCrop, scopeLot)}
+        ${visualCropOverview(scopeCrop, scopeLot)}
       </article>
     `;
   }
@@ -4440,21 +4541,26 @@ window.SIEMBRA_COSECHAS_SEED = {
     `;
   }
 
-  function visualCropOverview() {
-    const crops = allCrops().filter(Boolean).sort((a, b) => a.localeCompare(b, "es"));
-    if (!crops.length) return "";
+  function visualCropOverview(scopeCrop = "", scopeLot = "") {
+    const scopes = scopeLot
+      ? lotScopes(scopeCrop).filter((scope) => scope.lote === scopeLot)
+      : scopeCrop
+      ? [{ cultivo: scopeCrop, lote: "" }]
+      : allCrops().filter(Boolean).sort((a, b) => a.localeCompare(b, "es")).map((crop) => ({ cultivo: crop, lote: "" }));
+    if (!scopes.length) return "";
+    const includesLot = scopes.some((scope) => scope.lote);
     return `
       <section class="partner-crops">
-        <h2>Resultado por cultivo</h2>
+        <h2>${includesLot ? "Resultado por lote" : "Resultado por cultivo"}</h2>
         <div>
-          ${crops
-            .map((crop) => {
-              const t = totals(crop);
+          ${scopes
+            .map((scope) => {
+              const t = totals(scope.cultivo, scope.lote);
               const margin = t.totalIncome ? (t.profit / t.totalIncome) * 100 : 0;
               const cls = t.profit >= 0 ? "crop-profit" : "crop-loss";
               return `
                 <article>
-                  <span>${htmlEscape(crop)}</span>
+                  <span>${htmlEscape(scope.cultivo)}${scope.lote ? ` | ${htmlEscape(scope.lote)}` : ""}</span>
                   <strong class="${cls}">${money(t.profit)}</strong>
                   <dl>
                     <div><dt>Ingreso</dt><dd>${money(t.totalIncome)}</dd></div>
@@ -4470,12 +4576,12 @@ window.SIEMBRA_COSECHAS_SEED = {
     `;
   }
 
-  function visualCropPlanOverview() {
-    const rows = state.cultivos || [];
+  function visualCropPlanOverview(scopeCrop = "", scopeLot = "") {
+    const rows = filterByScope(state.cultivos || [], scopeCrop, scopeLot);
     if (!rows.length) return "";
     return `
       <section class="partner-crops partner-plans">
-        <h2>Cultivos activos en esta temporada</h2>
+        <h2>${scopeLot ? "Parcela incluida en el reporte" : "Cultivos incluidos en el reporte"}</h2>
         <div>
           ${rows
             .map(
